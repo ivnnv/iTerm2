@@ -92,6 +92,10 @@ class iTermSessionTabStatus: NSObject {
     // Lets us clear only state we own without trampling a real OSC 21337 status.
     // Kept outside `State` so equality on visible fields is independent of ownership.
     private var _synthesizedStatusSource: String? = nil
+    // The synthesized state currently applied by `_synthesizedStatusSource`, if any.
+    // Lets consumers distinguish a working agent from an idle one, since both keep
+    // `hasIndicator` true (idle just shows a green dot). See `isBusy`.
+    private var _synthesizedState: SynthesizedState = .none
     private var state = State()
     @objc var hasIndicator: Bool {
         get {
@@ -291,6 +295,7 @@ class iTermSessionTabStatus: NSObject {
             state.statusTextColor = iTermSRGBColor(r: 0, g: 0, b: 0)
             state.detailText = nil
             _synthesizedStatusSource = nil
+            _synthesizedState = .none
             if state == before { return false }
             notify()
             return true
@@ -310,16 +315,38 @@ class iTermSessionTabStatus: NSObject {
         // (hasActiveStatus=false), the synthesized state replaces the visible
         // status and any stale detail would otherwise render next to it.
         state.detailText = nil
-        if state == before && _synthesizedStatusSource == source {
+        if state == before && _synthesizedStatusSource == source && _synthesizedState == newState {
             return false
         }
         _synthesizedStatusSource = source
+        _synthesizedState = newState
         notify()
         return true
     }
 
     @objc var synthesizedStatusSource: String? {
         return _synthesizedStatusSource
+    }
+
+    // Whether this session represents an agent that is actively doing work. A
+    // synthesized status counts only when working or waiting on the user; an idle
+    // agent keeps a (green) indicator but is not busy. A real OSC 21337 status we
+    // don't own counts when it shows an indicator, unless its statusText is an
+    // explicit "Idle" label.
+    @objc var isBusy: Bool {
+        if _synthesizedStatusSource != nil {
+            return _synthesizedState == .working || _synthesizedState == .waiting
+        }
+        // Real OSC 21337 emitter. An indicator alone does not mean "working":
+        // some agents (e.g. Claude Code) keep a dot while idle and convey the
+        // live state through statusText ("Working…" vs "Idle"). Honor an explicit
+        // idle label; otherwise fall back to the indicator's presence.
+        guard state.hasIndicator else { return false }
+        if let text = state.statusText,
+           text.localizedCaseInsensitiveCompare("Idle") == .orderedSame {
+            return false
+        }
+        return true
     }
 
     @objc static let didChangeNotificationName = NSNotification.Name("iTermSessionTabStatusDidChange")
