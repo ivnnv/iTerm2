@@ -101,7 +101,7 @@ class AIMenuBarStatusController: NSObject {
 
     private func busyCount() -> Int {
         let tabIndicatorSessionIDs = SessionStatusController.instance.statuses.values
-            .filter { $0.hasIndicator }
+            .filter { $0.isBusy }
             .map { $0.sessionID }
         let busyChatIDs = TypingStatusModel.instance.chatIDs(forParticipant: .agent)
         var unique = Set<String>()
